@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.vite/
+.env
+.env.*
+.env.local
+*.pem
+*.key
+spacetime.local.json
+.DS_Store
+*.log
+.spacetime/
+client/dist/
+spacetimedb/dist/
