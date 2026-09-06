@@ -111,13 +111,16 @@ export const PHASE_ORDER = [
 ] as const;
 
 export const PHASE_MICROS: Record<string, bigint> = {
-  [PHASE.manifesto]: 30_000_000n,
-  [PHASE.everyday]: 30_000_000n,
-  [PHASE.opportunity]: 30_000_000n,
-  [PHASE.values]: 30_000_000n,
-  [PHASE.soapbox]: 30_000_000n,
-  [PHASE.election]: 30_000_000n,
+  [PHASE.manifesto]: 90_000_000n,
+  [PHASE.everyday]: 90_000_000n,
+  [PHASE.opportunity]: 90_000_000n,
+  [PHASE.values]: 90_000_000n,
+  [PHASE.soapbox]: 90_000_000n,
+  [PHASE.election]: 60_000_000n,
 };
+
+export const EVENT_DISCUSSION_MICROS = 60_000_000n;
+export const EVENT_REACTION_MICROS = 30_000_000n;
 
 export const OPTION_LINE: Record<string, string[]> = {
   [EVENT.nightCanteen]: [

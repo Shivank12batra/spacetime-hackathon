@@ -27,4 +27,8 @@ export default __t.row({
   winAt: __t.u32().name("win_at"),
   ending: __t.string(),
   deadlineMicros: __t.u64().name("deadline_micros"),
+  eventStage: __t.string().name("event_stage"),
+  stageDeadlineMicros: __t.u64().name("stage_deadline_micros"),
+  choicesLocked: __t.u32().name("choices_locked"),
+  reactionsLocked: __t.u32().name("reactions_locked"),
 });

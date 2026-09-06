@@ -106,6 +106,10 @@ export const MatchState = __t.object("MatchState", {
   winAt: __t.u32(),
   ending: __t.string(),
   deadlineMicros: __t.u64(),
+  eventStage: __t.string(),
+  stageDeadlineMicros: __t.u64(),
+  choicesLocked: __t.u32(),
+  reactionsLocked: __t.u32(),
 });
 export type MatchState = __Infer<typeof MatchState>;
 

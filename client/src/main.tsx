@@ -4,13 +4,12 @@ import { SpacetimeDBProvider } from 'spacetimedb/react';
 import { DbConnection } from './module_bindings';
 import { App } from './App';
 import { ErrorBoundary } from './ErrorBoundary';
-import './styles.css';
-import './cinematic.css';
+import './noticeboard.css';
 
 const host = import.meta.env.VITE_SPACETIME_URI ?? 'http://127.0.0.1:3000';
 const dbName = import.meta.env.VITE_SPACETIME_DB ?? 'kingmaker';
 const seatKey = new URLSearchParams(window.location.search).get('as') || 'default';
-const tokenKey = `kingmaker_token_${seatKey}`;
+const tokenKey = `campus_whispers_token_${seatKey}`;
 
 const connectionBuilder = DbConnection.builder()
   .withUri(host)

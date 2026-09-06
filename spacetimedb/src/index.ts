@@ -11,8 +11,10 @@ import {
   BROKERS,
   CANDIDATES,
   DEAL,
+  EVENT_DISCUSSION_MICROS,
   EVENT_OPTIONS,
   EVENT_PAIRS,
+  EVENT_REACTION_MICROS,
   EVENT_TITLE,
   MATCH_ID,
   OPTION_LINE,
@@ -55,6 +57,10 @@ const match_state = table(
     win_at: t.u32(),
     ending: t.string(),
     deadline_micros: t.u64().default(0n),
+    event_stage: t.string().default(''),
+    stage_deadline_micros: t.u64().default(0n),
+    choices_locked: t.u32().default(0),
+    reactions_locked: t.u32().default(0),
   }
 );
 
@@ -427,6 +433,10 @@ function seedMatch(ctx: Ctx) {
     win_at: 3,
     ending: '',
     deadline_micros: 0n,
+    event_stage: '',
+    stage_deadline_micros: 0n,
+    choices_locked: 0,
+    reactions_locked: 0,
   });
   for (const role of CANDIDATES) {
     ctx.db.candidate_profile.insert({
@@ -481,8 +491,10 @@ function pickEvent(ctx: Ctx, phase: string): string {
 function enterPhase(ctx: Ctx, phase: string) {
   const match = requireMatch(ctx);
   const eventId = EVENT_PAIRS[phase] ? pickEvent(ctx, phase) : '';
+  const isEvent = !!eventId;
   const dealsLocked = phase === PHASE.soapbox || phase === PHASE.election || phase === PHASE.reveal || phase === PHASE.allocation || phase === PHASE.results;
-  const until = ctx.timestamp.microsSinceUnixEpoch + (PHASE_MICROS[phase] ?? 0n);
+  const duration = isEvent ? EVENT_DISCUSSION_MICROS : (PHASE_MICROS[phase] ?? 0n);
+  const until = ctx.timestamp.microsSinceUnixEpoch + duration;
   ctx.db.match_state.id.update({
     ...match,
     phase,
@@ -490,11 +502,14 @@ function enterPhase(ctx: Ctx, phase: string) {
     phase_ends_at: new Timestamp(until),
     deadline_micros: until,
     deals_locked: dealsLocked,
+    event_stage: isEvent ? 'discussion' : '',
+    stage_deadline_micros: isEvent ? until : 0n,
+    choices_locked: 0,
+    reactions_locked: 0,
   });
-  const duration = PHASE_MICROS[phase];
-  if (duration) scheduleIn(ctx, duration, 'phase');
+  if (duration) scheduleIn(ctx, duration, isEvent ? 'event_discussion' : 'phase');
   if (phase === PHASE.manifesto) {
-    post(ctx, 'BULLETIN|Asteria Radio: Manifesto night. Two posters. Five kingmakers. Thirty seconds. No one can fund everyone.');
+    post(ctx, 'BULLETIN|Asteria Radio: Manifesto night. Two candidates. Five committee heads. No one can fund everyone.');
   } else if (phase === PHASE.everyday) {
     post(ctx, 'BULLETIN|Breaking: an everyday campus fight just hit the lawn. Candidates choose in secret.');
   } else if (phase === PHASE.opportunity) {
@@ -521,7 +536,21 @@ function maybeRevealChoices(ctx: Ctx, force = false) {
   const match = requireMatch(ctx);
   if (!match.event_id) return;
   if ([...ctx.db.revealed_choice.by_event.filter(match.event_id)].length > 0) return;
-  const hidden = [...ctx.db.hidden_choice.iter()].filter(row => row.event_id === match.event_id);
+  let hidden = [...ctx.db.hidden_choice.iter()].filter(row => row.event_id === match.event_id);
+  if (force) {
+    for (const candidateRole of CANDIDATES) {
+      if (!playerByRole(ctx, candidateRole)) continue;
+      if (hidden.some(row => row.candidate_role === candidateRole)) continue;
+      ctx.db.hidden_choice.insert({
+        id: 0n,
+        event_id: match.event_id,
+        candidate_role: candidateRole,
+        option_index: 0,
+        budget_commit: 0,
+      });
+    }
+    hidden = [...ctx.db.hidden_choice.iter()].filter(row => row.event_id === match.event_id);
+  }
   if (hidden.length === 0) return;
   if (hidden.length < 2 && !force) return;
   for (const choice of hidden) {
@@ -579,7 +608,14 @@ function tryCloseElection(ctx: Ctx, force: boolean = false) {
       }
     }
   }
-  ctx.db.match_state.id.update({ ...match, phase: PHASE.reveal, ballots_revealed: 0 });
+  ctx.db.match_state.id.update({
+    ...match,
+    phase: PHASE.reveal,
+    ballots_revealed: 0,
+    event_stage: '',
+    stage_deadline_micros: 0n,
+    deadline_micros: 0n,
+  });
   scheduleIn(ctx, 400_000n, 'reveal');
   post(ctx, 'Every ballot is in. The count begins.');
 }
@@ -600,7 +636,12 @@ function revealNextBallot(ctx: Ctx) {
       if (tallies[ROLE.campusStar] > tallies[ROLE.builder]) winner = ROLE.campusStar;
       else winner = ROLE.builder;
     }
-    ctx.db.match_state.id.update({ ...match, phase: PHASE.allocation, winner_role: winner });
+    ctx.db.match_state.id.update({
+      ...match,
+      phase: PHASE.allocation,
+      winner_role: winner,
+      deadline_micros: 0n,
+    });
     clearTimers(ctx);
     post(ctx, `${roleLabel(winner)} is President. The ₹100L budget is theirs.`);
     return;
@@ -734,15 +775,51 @@ function resolveGovernment(ctx: Ctx) {
     ...requireMatch(ctx),
     phase: PHASE.results,
     ending,
+    deadline_micros: 0n,
+    event_stage: '',
+    stage_deadline_micros: 0n,
   });
   clearTimers(ctx);
   post(ctx, `The budget is public. ${roleLabel(match.winner_role)} leaves office as a ${ending}.`);
+}
+
+function beginReactionStage(ctx: Ctx) {
+  const match = requireMatch(ctx);
+  if (!match.event_id || match.event_stage !== 'discussion') return;
+  maybeRevealChoices(ctx, true);
+  const current = requireMatch(ctx);
+  const until = ctx.timestamp.microsSinceUnixEpoch + EVENT_REACTION_MICROS;
+  ctx.db.match_state.id.update({
+    ...current,
+    phase_ends_at: new Timestamp(until),
+    deadline_micros: until,
+    event_stage: 'reaction',
+    stage_deadline_micros: until,
+    reactions_locked: 0,
+  });
+  scheduleIn(ctx, EVENT_REACTION_MICROS, 'event_reaction');
+}
+
+function advanceToNextPhase(ctx: Ctx) {
+  const match = requireMatch(ctx);
+  const index = PHASE_ORDER.indexOf(match.phase as (typeof PHASE_ORDER)[number]);
+  if (index < 0) return;
+  const next = PHASE_ORDER[index + 1];
+  if (next) enterPhase(ctx, next);
 }
 
 function advanceFromTimer(ctx: Ctx, kind: string) {
   const match = requireMatch(ctx);
   if (kind === 'reveal') {
     revealNextBallot(ctx);
+    return;
+  }
+  if (kind === 'event_discussion') {
+    beginReactionStage(ctx);
+    return;
+  }
+  if (kind === 'event_reaction') {
+    advanceToNextPhase(ctx);
     return;
   }
   if (match.phase === PHASE.lobby || match.phase === PHASE.allocation || match.phase === PHASE.results) {
@@ -756,11 +833,12 @@ function advanceFromTimer(ctx: Ctx, kind: string) {
     revealNextBallot(ctx);
     return;
   }
-  const index = PHASE_ORDER.indexOf(match.phase as (typeof PHASE_ORDER)[number]);
-  if (index < 0) return;
-  if (match.event_id) maybeRevealChoices(ctx, true);
-  const next = PHASE_ORDER[index + 1];
-  if (next) enterPhase(ctx, next);
+  if (match.event_id) {
+    if (match.event_stage === 'discussion') beginReactionStage(ctx);
+    else advanceToNextPhase(ctx);
+    return;
+  }
+  advanceToNextPhase(ctx);
 }
 
 export const myRelationship = spacetimedb.view(
@@ -874,12 +952,15 @@ export const startMatch = spacetimedb.reducer(ctx => {
     throw new SenderError('both candidates must be seated');
   }
   const brokers = seatedBrokers(ctx);
-  if (brokers.length !== 3 && brokers.length !== 5) {
-    throw new SenderError('seat three or five kingmakers');
+  if (brokers.length !== 5) {
+    throw new SenderError('all five committee heads must be seated');
+  }
+  const seated = [...ctx.db.player.iter()].filter(player => player.role);
+  if (seated.length !== 7 || seated.some(player => !player.ready)) {
+    throw new SenderError('all seven players must seal their roles');
   }
   wipeGameplay(ctx);
   seedRelationships(ctx);
-  const winAt = brokers.length >= 5 ? 3 : Math.max(1, Math.ceil(brokers.length / 2));
   ctx.db.match_state.id.update({
     ...requireMatch(ctx),
     winner_role: '',
@@ -891,7 +972,7 @@ export const startMatch = spacetimedb.reducer(ctx => {
     welfare_budget: 0,
     ballots_revealed: 0,
     deals_locked: false,
-    win_at: winAt,
+    win_at: 3,
     ending: '',
   });
   enterPhase(ctx, PHASE.manifesto);
@@ -917,6 +998,10 @@ export const resetMatch = spacetimedb.reducer(ctx => {
     ending: '',
     phase_ends_at: ctx.timestamp,
     deadline_micros: 0n,
+    event_stage: '',
+    stage_deadline_micros: 0n,
+    choices_locked: 0,
+    reactions_locked: 0,
   });
   for (const row of [...ctx.db.player.iter()]) {
     ctx.db.player.identity.update({ ...row, role: '', ready: false });
@@ -1111,6 +1196,7 @@ export const submitChoice = spacetimedb.reducer(
   (ctx, { optionIndex, budgetCommit }) => {
     const match = requireMatch(ctx);
     if (!match.event_id) throw new SenderError('no live event');
+    if (match.event_stage !== 'discussion') throw new SenderError('the decision window is closed');
     const me = requireRole(ctx);
     if (!isCandidate(me.role)) throw new SenderError('only candidates choose');
     const options = EVENT_OPTIONS[match.event_id];
@@ -1128,7 +1214,10 @@ export const submitChoice = spacetimedb.reducer(
       option_index: optionIndex,
       budget_commit: budgetCommit,
     });
-    maybeRevealChoices(ctx);
+    const locked = [...ctx.db.hidden_choice.iter()].filter(
+      row => row.event_id === match.event_id
+    ).length;
+    ctx.db.match_state.id.update({ ...match, choices_locked: locked });
   }
 );
 
@@ -1137,6 +1226,7 @@ export const reactToCandidate = spacetimedb.reducer(
   (ctx, { candidateRole, stance }) => {
     const match = requireMatch(ctx);
     if (!match.event_id) throw new SenderError('no live event');
+    if (match.event_stage !== 'reaction') throw new SenderError('reactions are not open');
     if ([...ctx.db.revealed_choice.by_event.filter(match.event_id)].length === 0) {
       throw new SenderError('wait for the reveal');
     }
@@ -1157,6 +1247,13 @@ export const reactToCandidate = spacetimedb.reducer(
         stance,
       });
     }
+    const reactionsLocked = [...ctx.db.reaction.iter()].filter(
+      row => row.event_id === match.event_id
+    ).length;
+    ctx.db.match_state.id.update({
+      ...requireMatch(ctx),
+      reactions_locked: reactionsLocked,
+    });
     if (stance === 'none') return;
     const rel = findRelationship(ctx, candidateRole, me.role);
     if (!rel) return;
