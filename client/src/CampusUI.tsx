@@ -12,7 +12,6 @@ import {
   PHASES,
   PRIORITIES,
   PROJECTS,
-  ROLE,
   ROLES,
   RULE_NOTICES,
   isCandidate,
@@ -22,6 +21,7 @@ import {
   manifestoLines,
   roleTitle,
   seatLabel,
+  choiceCredibility,
 } from './world';
 
 export type MatchView = {
@@ -294,7 +294,7 @@ export function LobbyBoard({
   const mySeat = me.role ? ROLES[me.role] : undefined;
 
   return (
-    <main className="cw-board cw-lobby">
+    <main className="cw-board cw-lobby" data-phase="lobby">
       <div className="cw-board-scribbles" aria-hidden="true">
         <span>FEST AUDITIONS<br />ROOM 204</span>
         <span>BLOCK C WI-FI<br />COMPLAINT #47</span>
@@ -305,7 +305,7 @@ export function LobbyBoard({
           <span className="cw-label">Asteria Institute · Nominations desk</span>
           <h1 className="cw-display">Choose where you stand.</h1>
           <p>
-            Two candidates need three votes. Five committee heads need their departments to survive.
+            Click a card to take that seat. Two candidates need three votes. Five committee heads need their departments to survive.
           </p>
         </header>
         <section className="cw-role-grid">
@@ -318,15 +318,20 @@ export function LobbyBoard({
                 className="cw-paper cw-pin cw-role-card"
                 data-kind={meta.kind}
                 data-role={role}
+                data-mine={mine || undefined}
                 data-ready={owner?.ready || undefined}
                 disabled={!!owner && !mine}
                 key={role}
-                onClick={() => actions.claimRole(role)}
+                onClick={() => {
+                  if (mine && me.ready) return;
+                  actions.claimRole(role);
+                }}
                 style={{
                   '--tilt': `${(index % 2 ? 1 : -1) * (0.35 + (index % 3) * 0.2)}deg`,
                   '--i': index,
                 } as CSSProperties}
               >
+                {mine && <span className="cw-yours">Your seat</span>}
                 <span className="cw-card-kind">{meta.kind === 'candidate' ? 'Presidential ticket' : 'Committee ballot'}</span>
                 {meta.kind === 'candidate' && (
                   <span className="cw-candidate-art">
@@ -340,24 +345,29 @@ export function LobbyBoard({
                   <p className="cw-copy">{meta.publicBrief}</p>
                 </span>
                 <span className="cw-role-owner">
-                  {mine ? 'Your seat' : owner ? `${owner.displayName} · ${owner.ready ? 'sealed' : 'unsealed'}` : 'Take this seat'}
+                  {mine ? 'Sealed to you' : owner ? `${owner.displayName} · ${owner.ready ? 'sealed' : 'unsealed'}` : 'Click to claim'}
                 </span>
                 {owner?.ready && <span className="cw-wax-seal" aria-label="Role sealed">Sealed</span>}
               </button>
             );
           })}
         </section>
-        <section className="cw-paper" style={{ marginTop: '1.5rem', padding: '1rem', display: 'flex', gap: '1rem', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <section className="cw-paper cw-lobby-desk">
           <div>
             <strong>{mySeat ? mySeat.title : 'No role selected'}</strong>
             <p className="cw-copy" style={{ margin: '0.25rem 0 0' }}>
-              {me.ready ? 'Your wax seal is set. Change it only if you need to move seats.' : 'Claim a role, then seal it when you are certain.'}
+              {me.ready ? 'Your seat is sealed. Click another open card to move, or break the seal if you need to wait.' : 'Click any open card. That claim also seals your role.'}
             </p>
           </div>
           <div className="cw-actions" style={{ margin: 0 }}>
-            {me.role && (
-              <button className={`cw-btn ${me.ready ? 'cw-btn-secondary' : ''}`} onClick={() => actions.setReady(!me.ready)}>
-                {me.ready ? 'Break my seal' : 'Seal my role'}
+            {me.role && me.ready && (
+              <button className="cw-btn cw-btn-secondary" onClick={() => actions.setReady(false)}>
+                Break my seal
+              </button>
+            )}
+            {me.role && !me.ready && (
+              <button className="cw-btn" onClick={() => actions.setReady(true)}>
+                Seal my role
               </button>
             )}
             <button className="cw-btn" disabled={!everyoneReady} onClick={actions.start}>
@@ -557,8 +567,9 @@ function CandidateChoiceTray({
           </button>
         ))}
       </div>
-      <div className="cw-actions" style={{ alignItems: 'center' }}>
-        <label className="cw-copy">Public budget promise
+      <div className="cw-commit-row">
+        <label className="cw-commit-field">
+          <span>Public budget promise</span>
           <select className="cw-select" value={budget} onChange={event => setBudget(Number(event.target.value))}>
             {[0, 5, 10, 15, 20].map(value => <option value={value} key={value}>{value ? `₹${value}L` : 'No commitment'}</option>)}
           </select>
@@ -576,7 +587,6 @@ export function EventStage({
   choices,
   hiddenChoices,
   reactions,
-  facts,
   actions,
   projector,
 }: {
@@ -586,7 +596,6 @@ export function EventStage({
   choices: readonly ChoiceView[];
   hiddenChoices: readonly { eventId: string; candidateRole: string }[];
   reactions: readonly ReactionView[];
-  facts: readonly FactView[];
   actions: CampusActions;
   projector: boolean;
 }) {
@@ -622,11 +631,6 @@ export function EventStage({
               <div className="cw-reveal-grid">
                 {eventChoices.map(choice => <DecisionCard choice={choice} reactions={eventReactions} players={players} key={choice.candidateRole} />)}
               </div>
-              {facts.slice(-2).map(fact => (
-                <div className="cw-fact-strip" key={fact.id.toString()}>
-                  <strong>Campus consequence</strong>{FACT_LABELS[fact.factId] ?? fact.factId}
-                </div>
-              ))}
               {!projector && me && isCommitteeHead(me.role) && (
                 <div className="cw-options">
                   {eventChoices.map(choice => {
@@ -925,31 +929,71 @@ function SoapboxStage({
   exposedDeals: readonly ExposedDealView[];
 }) {
   return (
-    <section className="cw-event">
+    <section className="cw-event cw-soapbox">
       <article className="cw-paper cw-pin cw-event-note">
-        <span className="cw-stamp">Final rally · deals locked</span>
-        <h1 className="cw-title" style={{ marginTop: '1rem' }}>Everything you said is now evidence.</h1>
-        <div className="cw-reveal-grid">
+        <span className="cw-stamp">Final rally · 30 seconds · deals locked</span>
+        <h1 className="cw-title" style={{ marginTop: '1rem' }}>What they stood for. What they actually did.</h1>
+        <div className="cw-soapbox-grid">
           {CANDIDATES.map(role => {
             const profile = profiles.find(item => item.role === role);
+            const record = choices.filter(choice => choice.candidateRole === role);
+            const marks = record.map(choice => choiceCredibility(choice.eventId, choice.optionIndex, profile?.priorityOne, profile?.priorityTwo));
+            const broken = marks.filter(mark => mark.verdict === 'betrayed' || mark.verdict === 'strained');
             return (
-              <div className="cw-paper cw-decision" key={role}>
-                <CandidatePortrait role={role} />
-                <div>
-                  <strong>{nameFor(players, role)}</strong>
-                  <ul className="cw-manifesto-list">
-                    {manifestoLines(role, profile?.priorityOne, profile?.priorityTwo).map(line => <li key={line}>{line}</li>)}
-                  </ul>
-                  <p className="cw-copy">{choices.filter(choice => choice.candidateRole === role).map(choice => EVENTS[choice.eventId]?.options[choice.optionIndex]).join(' · ')}</p>
-                  <div className="cw-reaction-stamps">
-                    {endorsements.filter(item => item.candidateRole === role).map(item => <span className="cw-reaction" key={item.brokerRole}>{nameFor(players, item.brokerRole)} endorsed</span>)}
+              <article className="cw-paper cw-ticket" data-candidate={role} key={role}>
+                <header className="cw-ticket-head">
+                  <CandidatePortrait role={role} />
+                  <div>
+                    <span className="cw-stamp">Presidential ticket</span>
+                    <h2 className="cw-title">{nameFor(players, role)}</h2>
+                    {broken.length > 0 && (
+                      <p className="cw-credibility" data-verdict={broken[0].verdict}>
+                        {broken.some(mark => mark.verdict === 'betrayed') ? 'Manifesto betrayal on the record' : 'Credibility under strain'}
+                      </p>
+                    )}
                   </div>
+                </header>
+                <div className="cw-soapbox-cols">
+                  <section>
+                    <strong>Stood for</strong>
+                    <p className="cw-hand">{profile?.priorityOne ? `First: ${priorityLabel(profile.priorityOne)}` : 'No first priority sealed.'}</p>
+                    <p className="cw-copy">{profile?.priorityTwo ? `Second: ${priorityLabel(profile.priorityTwo)}` : 'Second priority unstated.'}</p>
+                    <ul className="cw-manifesto-list">
+                      {manifestoLines(role, profile?.priorityOne, profile?.priorityTwo).slice(0, 2).map(line => <li key={line}>{line}</li>)}
+                    </ul>
+                  </section>
+                  <section>
+                    <strong>Actually did</strong>
+                    <div className="cw-record">
+                      {record.length === 0 && <p className="cw-copy">No public decisions yet.</p>}
+                      {record.map(choice => {
+                        const mark = marks.find(item => item.eventId === choice.eventId);
+                        return (
+                          <div className="cw-record-item" data-verdict={mark?.verdict} key={`${choice.eventId}-${choice.optionIndex}`}>
+                            <span>{EVENTS[choice.eventId]?.title ?? choice.eventId}</span>
+                            <p>{EVENTS[choice.eventId]?.options[choice.optionIndex] ?? `Option ${choice.optionIndex + 1}`}</p>
+                            {mark?.note && <em>{mark.note}</em>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
                 </div>
-              </div>
+                <div className="cw-reaction-stamps">
+                  {endorsements.filter(item => item.candidateRole === role).map(item => (
+                    <span className="cw-reaction" key={item.brokerRole}>{nameFor(players, item.brokerRole)} endorsed</span>
+                  ))}
+                </div>
+              </article>
             );
           })}
         </div>
-        {exposedDeals.length > 0 && <div className="cw-fact-strip"><strong>Leaked promises</strong>{exposedDeals.map(deal => `${nameFor(players, deal.candidateRole)} promised ${nameFor(players, deal.brokerRole)} ₹${deal.promisedBudget}L`).join(' · ')}</div>}
+        {exposedDeals.length > 0 && (
+          <div className="cw-leak-strip">
+            <strong>Leaked promises</strong>
+            {exposedDeals.map(deal => `${nameFor(players, deal.candidateRole)} promised ${nameFor(players, deal.brokerRole)} ₹${deal.promisedBudget}L`).join(' · ')}
+          </div>
+        )}
       </article>
     </section>
   );
@@ -1160,7 +1204,7 @@ export function MainStage({
   const latestBulletin = [...feed].sort((a, b) => Number(b.id - a.id))[0];
   let stage: ReactNode;
   if (match.phase === 'manifesto') stage = <ManifestoStage me={me} players={players} profiles={profiles} actions={actions} projector={projector} />;
-  else if (match.eventId) stage = <EventStage match={match} me={me} players={players} choices={choices} hiddenChoices={hiddenChoices} reactions={reactions} facts={facts} actions={actions} projector={projector} />;
+  else if (match.eventId) stage = <EventStage match={match} me={me} players={players} choices={choices} hiddenChoices={hiddenChoices} reactions={reactions} actions={actions} projector={projector} />;
   else if (match.phase === 'soapbox') stage = <SoapboxStage players={players} profiles={profiles} choices={choices} endorsements={endorsements} exposedDeals={exposedDeals} />;
   else if (match.phase === 'election') stage = <ElectionStage me={me} players={players} myBallots={myBallots} actions={actions} projector={projector} />;
   else if (match.phase === 'reveal') stage = <RevealStage ballots={ballots} match={match} players={players} />;

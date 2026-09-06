@@ -931,7 +931,7 @@ export const claimRole = spacetimedb.reducer(
     if (taken && !taken.identity.equals(ctx.sender)) {
       throw new SenderError('that seat is taken');
     }
-    ctx.db.player.identity.update({ ...me, role, ready: false });
+    ctx.db.player.identity.update({ ...me, role, ready: true });
   }
 );
 

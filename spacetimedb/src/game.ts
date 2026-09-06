@@ -115,7 +115,7 @@ export const PHASE_MICROS: Record<string, bigint> = {
   [PHASE.everyday]: 90_000_000n,
   [PHASE.opportunity]: 90_000_000n,
   [PHASE.values]: 90_000_000n,
-  [PHASE.soapbox]: 90_000_000n,
+  [PHASE.soapbox]: 30_000_000n,
   [PHASE.election]: 60_000_000n,
 };
 

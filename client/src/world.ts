@@ -327,3 +327,72 @@ export function isCandidate(role: string): boolean {
 export function isCommitteeHead(role: string): boolean {
   return (COMMITTEE_HEADS as readonly string[]).includes(role);
 }
+
+const OPTION_BETRAYS: Record<string, Record<number, readonly string[]>> = {
+  night_canteen: { 0: ['welfare'], 2: ['hostel', 'welfare'] },
+  wifi_blackout: { 2: ['placement', 'hostel'] },
+  tournament: { 2: ['sports'] },
+  fest_sponsor: { 0: ['welfare'], 1: ['culture'] },
+  curfew: { 0: ['culture', 'welfare'] },
+  fest_vs_recruiters: { 0: ['culture'], 1: ['placement'] },
+};
+
+const OPTION_HONOURS: Record<string, Record<number, readonly string[]>> = {
+  night_canteen: { 0: ['hostel'], 1: ['hostel', 'welfare'] },
+  wifi_blackout: { 0: ['hostel', 'placement'], 1: ['placement'] },
+  tournament: { 0: ['sports'], 1: ['sports'] },
+  fest_sponsor: { 1: ['welfare'], 2: ['culture', 'welfare'] },
+  curfew: { 1: ['culture', 'welfare'], 2: ['welfare'] },
+  fest_vs_recruiters: { 0: ['placement'], 1: ['culture'], 2: ['culture', 'placement'] },
+};
+
+export type CredibilityMark = {
+  eventId: string;
+  optionIndex: number;
+  verdict: 'honoured' | 'strained' | 'betrayed' | 'neutral';
+  note: string;
+};
+
+export function choiceCredibility(
+  eventId: string,
+  optionIndex: number,
+  priorityOne?: string,
+  priorityTwo?: string,
+): CredibilityMark {
+  const betrayed = OPTION_BETRAYS[eventId]?.[optionIndex] ?? [];
+  const honoured = OPTION_HONOURS[eventId]?.[optionIndex] ?? [];
+  const eventTitle = EVENTS[eventId]?.title ?? eventId;
+  if (priorityOne && betrayed.includes(priorityOne)) {
+    return {
+      eventId,
+      optionIndex,
+      verdict: 'betrayed',
+      note: `Manifesto betrayal: first promise was ${priorityLabel(priorityOne)}, then this ${eventTitle} choice.`,
+    };
+  }
+  if (priorityTwo && betrayed.includes(priorityTwo)) {
+    return {
+      eventId,
+      optionIndex,
+      verdict: 'strained',
+      note: `Credibility strain: second promise was ${priorityLabel(priorityTwo)}, then this ${eventTitle} choice.`,
+    };
+  }
+  if (priorityOne && honoured.includes(priorityOne)) {
+    return {
+      eventId,
+      optionIndex,
+      verdict: 'honoured',
+      note: `Held the first promise (${priorityLabel(priorityOne)}) on ${eventTitle}.`,
+    };
+  }
+  if (priorityTwo && honoured.includes(priorityTwo)) {
+    return {
+      eventId,
+      optionIndex,
+      verdict: 'honoured',
+      note: `Held the second promise (${priorityLabel(priorityTwo)}) on ${eventTitle}.`,
+    };
+  }
+  return { eventId, optionIndex, verdict: 'neutral', note: '' };
+}

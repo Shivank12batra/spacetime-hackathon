@@ -124,8 +124,11 @@ export function App() {
 
   const actions: CampusActions = {
     claimRole: role => {
-      audio.cue('paper');
-      void run('Claim role', () => claimRole({ role }));
+      audio.cue('stamp');
+      void run('Claim seat', async () => {
+        await claimRole({ role });
+        await setReady({ ready: true });
+      });
     },
     setReady: ready => {
       audio.cue(ready ? 'stamp' : 'paper');
