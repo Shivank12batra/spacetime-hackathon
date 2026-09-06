@@ -320,6 +320,10 @@ function seatedBrokers(ctx: Ctx): string[] {
   return BROKERS.filter(role => playerByRole(ctx, role));
 }
 
+function seatedCandidates(ctx: Ctx): string[] {
+  return CANDIDATES.filter(role => playerByRole(ctx, role));
+}
+
 function post(ctx: Ctx, body: string) {
   ctx.db.feed_item.insert({ id: 0n, created_at: ctx.timestamp, body });
 }
@@ -591,15 +595,18 @@ function maybeRevealChoices(ctx: Ctx, force = false) {
   );
 }
 
+function allSeatedBrokersVoted(ctx: Ctx): boolean {
+  const needed = seatedBrokers(ctx);
+  return needed.length > 0 && needed.every(role => !!ctx.db.ballot.broker_role.find(role));
+}
+
 function tryCloseElection(ctx: Ctx, force: boolean = false) {
   const match = requireMatch(ctx);
   if (match.phase !== PHASE.election) return;
   const needed = seatedBrokers(ctx);
   if (needed.length === 0) return;
-  const submitted = [...ctx.db.ballot.iter()].filter(row => needed.includes(row.broker_role as typeof BROKERS[number]));
-  if (submitted.length < needed.length) {
+  if (!allSeatedBrokersVoted(ctx)) {
     if (!force) return;
-    // Auto-cast for any uncast ballots when force-advancing or timing out
     for (const brokerRole of needed) {
       if (!ctx.db.ballot.broker_role.find(brokerRole)) {
         const endorsement = ctx.db.endorsement.broker_role.find(brokerRole);
@@ -611,6 +618,7 @@ function tryCloseElection(ctx: Ctx, force: boolean = false) {
   ctx.db.match_state.id.update({
     ...match,
     phase: PHASE.reveal,
+    phase_ends_at: ctx.timestamp,
     ballots_revealed: 0,
     event_stage: '',
     stage_deadline_micros: 0n,
@@ -1214,10 +1222,14 @@ export const submitChoice = spacetimedb.reducer(
       option_index: optionIndex,
       budget_commit: budgetCommit,
     });
-    const locked = [...ctx.db.hidden_choice.iter()].filter(
-      row => row.event_id === match.event_id
+    const locked = seatedCandidates(ctx).filter(
+      role => [...ctx.db.hidden_choice.by_event_candidate.filter([match.event_id, role])].length > 0
     ).length;
     ctx.db.match_state.id.update({ ...match, choices_locked: locked });
+    const needed = seatedCandidates(ctx).length;
+    if (needed > 0 && locked >= needed) {
+      beginReactionStage(ctx);
+    }
   }
 );
 
@@ -1254,6 +1266,10 @@ export const reactToCandidate = spacetimedb.reducer(
       ...requireMatch(ctx),
       reactions_locked: reactionsLocked,
     });
+    const neededReactions = seatedBrokers(ctx).length * seatedCandidates(ctx).length;
+    if (neededReactions > 0 && reactionsLocked >= neededReactions) {
+      advanceToNextPhase(ctx);
+    }
     if (stance === 'none') return;
     const rel = findRelationship(ctx, candidateRole, me.role);
     if (!rel) return;

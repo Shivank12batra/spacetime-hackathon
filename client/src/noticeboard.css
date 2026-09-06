@@ -603,15 +603,9 @@ select:focus-visible {
   text-shadow: 0 2px 8px rgba(0,0,0,.5);
 }
 
-.cw-role-card[data-kind='candidate'] .cw-role-mark {
-  position: absolute;
-  right: 1.2rem;
-  top: 2.4rem;
-}
-
 .cw-role-card[data-kind='candidate'] .cw-role-copy {
   align-self: center;
-  padding-right: 2.5rem;
+  padding-right: 0.4rem;
 }
 
 .cw-role-card[data-kind='candidate'] .cw-role-owner {

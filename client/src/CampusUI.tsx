@@ -339,7 +339,7 @@ export function LobbyBoard({
                     <span className="cw-candidate-number">0{index + 1}</span>
                   </span>
                 )}
-                <span className="cw-role-mark">{meta.mark}</span>
+                {meta.kind !== 'candidate' && <span className="cw-role-mark">{meta.mark}</span>}
                 <span className="cw-role-copy">
                   <strong>{meta.title}</strong>
                   <p className="cw-copy">{meta.publicBrief}</p>
